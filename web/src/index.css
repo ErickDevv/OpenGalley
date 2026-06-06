@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #000;
+  color: #fafafa;
+  font-family: theme("fontFamily.sans");
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 6px;
+}
+
+/* View transitions */
+@keyframes vt-in {
+  from { opacity: 0; translate: 0 8px; }
+}
+@keyframes vt-out {
+  to { opacity: 0; translate: 0 -8px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: 130ms ease-out vt-out both;
+  }
+  ::view-transition-new(root) {
+    animation: 180ms ease-out vt-in both;
+  }
+}
+
+/* Select dark mode across browsers */
+select {
+  color-scheme: dark;
+}
