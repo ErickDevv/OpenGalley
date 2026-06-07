@@ -206,6 +206,14 @@ export default function Editor() {
       await api.saveFile(id, active, content);
     setSaving("saved");
 
+    const mainPath = project?.main_path;
+    if (mainPath && active !== mainPath) {
+      const f = files.find((x) => x.path === mainPath);
+      setActive(mainPath);
+      setContent(f && !f.is_binary ? f.content ?? "" : "");
+      setMdPreview(true);
+    }
+
     setCompiling(true);
     try {
       const res = await api.compile(id);
@@ -507,6 +515,15 @@ export default function Editor() {
                 <tbody>
                   {csvRows.map((row, r) => (
                     <tr key={r} className="group">
+                      <td className="w-8 border-none p-0 text-center">
+                        <button
+                          title="Delete row"
+                          onClick={() => deleteCsvRow(r)}
+                          className="invisible flex h-full w-full items-center justify-center px-2 text-muted hover:text-red-400 group-hover:visible"
+                        >
+                          ✕
+                        </button>
+                      </td>
                       {row.map((cell, c) => (
                         <td key={c} className="border border-border p-0">
                           <input
@@ -518,15 +535,6 @@ export default function Editor() {
                           />
                         </td>
                       ))}
-                      <td className="w-8 border-none p-0 text-center">
-                        <button
-                          title="Delete row"
-                          onClick={() => deleteCsvRow(r)}
-                          className="hidden text-muted hover:text-red-400 group-hover:inline"
-                        >
-                          ✕
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
