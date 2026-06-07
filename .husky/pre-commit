@@ -1,0 +1,2 @@
+./sync-version.sh
+git add api/package.json web/package.json
