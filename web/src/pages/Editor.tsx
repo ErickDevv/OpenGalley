@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { flushSync } from "react-dom";
 import MonacoEditor from "@monaco-editor/react";
 import type * as MonacoType from "monaco-editor";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import Papa from "papaparse";
 import { api, Project, ProjectFile } from "../api";
 import { itemsFromDrop, itemsFromFileList, UploadItem } from "../upload";
 import { setupLatexValidation, revalidateSpell } from "../monacoSetup";
@@ -13,6 +16,7 @@ function langForPath(path: string): string {
     return "latex";
   if (path.endsWith(".bib")) return "bibtex";
   if (path.endsWith(".md")) return "markdown";
+  if (path.endsWith(".csv")) return "plaintext";
   return "plaintext";
 }
 
@@ -32,12 +36,55 @@ export default function Editor() {
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [spellLang, setSpellLangState] = useState<SpellLang>(getSpellLang);
+  const [mdPreview, setMdPreview] = useState(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoType.editor.IStandaloneCodeEditor | null>(null);
 
   const activeFile = files.find((f) => f.path === active);
+  const isMarkdown = active.toLowerCase().endsWith(".md");
+  const renderedMarkdown = useMemo(
+    () =>
+      isMarkdown
+        ? DOMPurify.sanitize(marked.parse(content, { async: false }) as string)
+        : "",
+    [isMarkdown, content]
+  );
+  const isCsv = active.toLowerCase().endsWith(".csv");
+  const csvRows = useMemo(
+    () =>
+      isCsv
+        ? (Papa.parse<string[]>(content, { skipEmptyLines: false })
+            .data as string[][])
+        : [],
+    [isCsv, content]
+  );
+
+  function addCsvRow() {
+    const cols = csvRows[0]?.length || 1;
+    const rows = [...csvRows, new Array(cols).fill("")];
+    const next = Papa.unparse(rows);
+    setContent(next);
+    scheduleSave(next, active);
+  }
+
+  function deleteCsvRow(row: number) {
+    const rows = csvRows.filter((_, i) => i !== row);
+    const next = Papa.unparse(rows);
+    setContent(next);
+    scheduleSave(next, active);
+  }
+
+  function editCsvCell(row: number, col: number, value: string) {
+    const rows = csvRows.map((r) => r.slice());
+    while (rows.length <= row) rows.push([]);
+    while (rows[row].length <= col) rows[row].push("");
+    rows[row][col] = value;
+    const next = Papa.unparse(rows);
+    setContent(next);
+    scheduleSave(next, active);
+  }
 
   async function refresh(selectPath?: string) {
     if (!id) return;
@@ -71,6 +118,7 @@ export default function Editor() {
     const f = files.find((x) => x.path === path);
     setActive(path);
     setContent(f && !f.is_binary ? f.content ?? "" : "");
+    setMdPreview(true);
   }
 
   function flushSave() {
@@ -157,6 +205,14 @@ export default function Editor() {
     if (activeFile && !activeFile.is_binary)
       await api.saveFile(id, active, content);
     setSaving("saved");
+
+    const mainPath = project?.main_path;
+    if (mainPath && active !== mainPath) {
+      const f = files.find((x) => x.path === mainPath);
+      setActive(mainPath);
+      setContent(f && !f.is_binary ? f.content ?? "" : "");
+      setMdPreview(true);
+    }
 
     setCompiling(true);
     try {
@@ -389,7 +445,7 @@ export default function Editor() {
         </aside>
 
         {/* Editor pane */}
-        <div className="min-w-0 flex-1 border-r border-border">
+        <div className="relative min-w-0 flex-1 border-r border-border">
           {loaded && activeFile && !activeFile.is_binary && (
             <MonacoEditor
               key={active}
@@ -440,7 +496,57 @@ export default function Editor() {
 
         {/* Preview pane */}
         <div className="relative min-w-0 flex-1 bg-neutral-900">
-          {pdfBust ? (
+          {!activeFile?.is_binary && isMarkdown && (
+            <button
+              onClick={() => setMdPreview((s) => !s)}
+              className="absolute right-2 top-2 z-10 rounded-md border border-border bg-panel/90 px-2 py-1 text-xs hover:bg-white/10"
+            >
+              {mdPreview ? "Hide preview" : "Show preview"}
+            </button>
+          )}
+          {isMarkdown && mdPreview ? (
+            <div
+              className="markdown-preview h-full overflow-auto p-6 text-sm text-neutral-200"
+              dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
+            />
+          ) : isCsv ? (
+            <div className="h-full overflow-auto p-2">
+              <table className="w-full border-collapse text-xs">
+                <tbody>
+                  {csvRows.map((row, r) => (
+                    <tr key={r} className="group">
+                      <td className="w-8 border-none p-0 text-center">
+                        <button
+                          title="Delete row"
+                          onClick={() => deleteCsvRow(r)}
+                          className="invisible flex h-full w-full items-center justify-center px-2 text-muted hover:text-red-400 group-hover:visible"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                      {row.map((cell, c) => (
+                        <td key={c} className="border border-border p-0">
+                          <input
+                            value={cell}
+                            onChange={(e) => editCsvCell(r, c, e.target.value)}
+                            className={`w-full min-w-[6rem] bg-transparent px-2 py-1 outline-none focus:bg-white/10 ${
+                              r === 0 ? "font-medium text-white" : "text-neutral-300"
+                            }`}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button
+                onClick={addCsvRow}
+                className="mt-2 rounded px-2 py-1 text-xs text-muted hover:bg-white/5"
+              >
+                + row
+              </button>
+            </div>
+          ) : pdfBust ? (
             <iframe
               title="pdf"
               src={api.pdfUrl(id!, pdfBust)}
