@@ -1,4 +1,4 @@
-name: Tests
+name: Audit
 
 on:
   push:
@@ -11,9 +11,12 @@ on:
       - main
 
 jobs:
-  unit:
-    name: Unit tests (API + Web)
+  api-audit:
+    name: API audit
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
     steps:
       - uses: actions/checkout@v4
 
@@ -23,14 +26,18 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          cache-dependency-path: api/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm turbo run test
+      - run: pnpm audit
 
-  web-e2e:
-    name: Web E2E tests
+  web-audit:
+    name: Web audit
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
 
@@ -40,9 +47,8 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter opengalley-web exec playwright install --with-deps chromium
-
-      - run: pnpm turbo run test:e2e --filter=opengalley-web
+      - run: pnpm audit

@@ -8,6 +8,7 @@ dist/
 build/
 out/
 web/dist/
+.turbo/
 
 # ── TypeScript ────────────────────────────────────────────────────────────────
 *.tsbuildinfo

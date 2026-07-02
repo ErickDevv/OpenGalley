@@ -51,10 +51,12 @@ function stripCommonRoot(paths: string[]): (p: string) => string {
   return (p) => p;
 }
 
+type FileWithRelPath = File & { webkitRelativePath?: string; _relPath?: string };
+
 // From a folder/multi-file <input>
 export async function itemsFromFileList(list: FileList): Promise<UploadItem[]> {
-  const files = Array.from(list);
-  const rawPaths = files.map((f) => (f as any).webkitRelativePath || f.name);
+  const files = Array.from(list) as FileWithRelPath[];
+  const rawPaths = files.map((f) => f.webkitRelativePath || f.name);
   const strip = stripCommonRoot(rawPaths);
   return Promise.all(
     files.map((f, i) => toItem(f, strip(rawPaths[i]).replace(/^\/+/, "")))
@@ -95,18 +97,19 @@ export function detectMainPath(items: UploadItem[]): string | undefined {
 }
 
 // Recursively read a dropped directory entry (webkit API)
-function readEntry(entry: any, prefix: string): Promise<File[]> {
+function readEntry(entry: FileSystemEntry, prefix: string): Promise<FileWithRelPath[]> {
   return new Promise((resolve) => {
     if (entry.isFile) {
-      entry.file((file: File) => {
-        (file as any)._relPath = prefix + entry.name;
-        resolve([file]);
+      (entry as FileSystemFileEntry).file((file) => {
+        const tagged = file as FileWithRelPath;
+        tagged._relPath = prefix + entry.name;
+        resolve([tagged]);
       });
     } else if (entry.isDirectory) {
-      const reader = entry.createReader();
-      const all: Promise<File[]>[] = [];
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const all: Promise<FileWithRelPath[]>[] = [];
       const readBatch = () =>
-        reader.readEntries(async (entries: any[]) => {
+        reader.readEntries(async (entries) => {
           if (entries.length === 0) {
             resolve((await Promise.all(all)).flat());
             return;
@@ -124,10 +127,10 @@ function readEntry(entry: any, prefix: string): Promise<File[]> {
 
 // From a drag-and-drop event (supports folders + loose files)
 export async function itemsFromDrop(dt: DataTransfer): Promise<UploadItem[]> {
-  const entries: any[] = [];
-  const looseFiles: File[] = [];
+  const entries: FileSystemEntry[] = [];
+  const looseFiles: FileWithRelPath[] = [];
   for (const item of Array.from(dt.items)) {
-    const entry = (item as any).webkitGetAsEntry?.();
+    const entry = item.webkitGetAsEntry?.();
     if (entry) entries.push(entry);
     else {
       const f = item.getAsFile();
@@ -135,15 +138,15 @@ export async function itemsFromDrop(dt: DataTransfer): Promise<UploadItem[]> {
     }
   }
 
-  let files: File[] = [];
+  let files: FileWithRelPath[] = [];
   if (entries.length) {
     files = (await Promise.all(entries.map((e) => readEntry(e, "")))).flat();
   } else {
     files = looseFiles;
-    files.forEach((f) => ((f as any)._relPath = f.name));
+    files.forEach((f) => (f._relPath = f.name));
   }
 
-  const rawPaths = files.map((f) => (f as any)._relPath || f.name);
+  const rawPaths = files.map((f) => f._relPath || f.name);
   const strip = stripCommonRoot(rawPaths);
   return Promise.all(
     files.map((f, i) => toItem(f, strip(rawPaths[i]).replace(/^\/+/, "")))
