@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { migrate } from "./db";
 import { projects } from "./routes/projects";
+import { projectFiles } from "./routes/projectFiles";
 import { compileRouter } from "./routes/compile";
 
 async function main() {
@@ -13,6 +14,7 @@ async function main() {
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   app.use("/api/projects", projects);
+  app.use("/api/projects", projectFiles);
   app.use("/api/projects", compileRouter);
 
   // central error handler

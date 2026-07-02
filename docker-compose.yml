@@ -15,7 +15,9 @@ services:
       retries: 10
 
   api:
-    build: ./api
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
@@ -30,7 +32,9 @@ services:
       - "4000:4000"
 
   web:
-    build: ./web
+    build:
+      context: .
+      dockerfile: web/Dockerfile
     restart: unless-stopped
     depends_on:
       - api

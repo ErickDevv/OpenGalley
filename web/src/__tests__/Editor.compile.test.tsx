@@ -6,7 +6,7 @@ import { api } from "../api";
 import type { Project, ProjectFile, CompileResult } from "../api";
 
 vi.mock("@monaco-editor/react", () => ({
-  default: ({ value, onChange }: any) => (
+  default: ({ value, onChange }: { value: string; onChange?: (value: string) => void }) => (
     <textarea
       data-testid="monaco-editor"
       value={value}
@@ -63,7 +63,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api, "listProjects").mockResolvedValue([mockProject]);
   vi.spyOn(api, "listFiles").mockResolvedValue(mockFiles);
-  vi.spyOn(api, "saveFile").mockResolvedValue(undefined as any);
+  vi.spyOn(api, "saveFile").mockResolvedValue(undefined as unknown as Response);
   vi.spyOn(api, "compile").mockResolvedValue(mockCompile);
   vi.spyOn(api, "pdfUrl").mockImplementation(
     (id, bust) => `/api/projects/${id}/pdf?t=${bust}`

@@ -54,7 +54,7 @@ describe("api.createProject", () => {
   it("respects seed=false", async () => {
     vi.stubGlobal("fetch", mockFetch(mockProject));
     await api.createProject("Empty", false);
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body.seed).toBe(false);
   });
 });
@@ -159,14 +159,14 @@ describe("api.compile", () => {
   it("includes main in body when provided", async () => {
     vi.stubGlobal("fetch", mockFetch({ ok: true, log: "" }));
     await api.compile("proj-1", "thesis.tex");
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body.main).toBe("thesis.tex");
   });
 
   it("sends empty body when no main specified", async () => {
     vi.stubGlobal("fetch", mockFetch({ ok: true, log: "" }));
     await api.compile("proj-1");
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
     expect(body).toEqual({});
   });
 });

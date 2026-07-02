@@ -1,24 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { flushSync } from "react-dom";
-import MonacoEditor from "@monaco-editor/react";
 import type * as MonacoType from "monaco-editor";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import Papa from "papaparse";
 import { api, Project, ProjectFile } from "../api";
 import { itemsFromDrop, itemsFromFileList, UploadItem } from "../upload";
-import { setupLatexValidation, revalidateSpell } from "../monacoSetup";
+import { revalidateSpell } from "../monacoSetup";
 import { getSpellLang, setSpellLang, SpellLang } from "../spellCheck";
+import { DRAG_MIME, FOLDER_MARKER, buildTree } from "../fileTree";
+import { viewNav } from "../viewTransition";
+import EditorToolbar from "../components/EditorToolbar";
+import FileTreeSidebar from "../components/FileTreeSidebar";
+import SourcePane from "../components/SourcePane";
+import PreviewPane from "../components/PreviewPane";
 
-function langForPath(path: string): string {
-  if (path.endsWith(".tex") || path.endsWith(".sty") || path.endsWith(".cls"))
-    return "latex";
-  if (path.endsWith(".bib")) return "bibtex";
-  if (path.endsWith(".md")) return "markdown";
-  if (path.endsWith(".csv")) return "plaintext";
-  return "plaintext";
-}
+export { DRAG_MIME };
 
 export default function Editor() {
   const { id } = useParams<{ id: string }>();
@@ -34,9 +31,11 @@ export default function Editor() {
   const [showLog, setShowLog] = useState(false);
   const [pdfBust, setPdfBust] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [spellLang, setSpellLangState] = useState<SpellLang>(getSpellLang);
   const [mdPreview, setMdPreview] = useState(true);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -51,6 +50,7 @@ export default function Editor() {
         : "",
     [isMarkdown, content]
   );
+  const tree = useMemo(() => buildTree(files), [files]);
   const isCsv = active.toLowerCase().endsWith(".csv");
   const csvRows = useMemo(
     () =>
@@ -153,6 +153,51 @@ export default function Editor() {
     await refresh();
   }
 
+  async function newFolder() {
+    if (!id) return;
+    const path = prompt("New folder path (e.g. images)");
+    if (!path) return;
+    await api.saveFile(id, `${path.replace(/\/+$/, "")}/${FOLDER_MARKER}`, "");
+    await refresh();
+  }
+
+  async function renamePath(path: string, isFolder: boolean) {
+    if (!id) return;
+    const to = prompt(isFolder ? "Rename folder to" : "Rename file to", path);
+    if (!to || to === path) return;
+    try {
+      await api.renameFile(id, path, to);
+      let nextActive: string | undefined;
+      if (isFolder) {
+        if (active === path || active.startsWith(`${path}/`))
+          nextActive = to + active.slice(path.length);
+      } else if (active === path) {
+        nextActive = to;
+      }
+      await refresh(nextActive);
+    } catch (e) {
+      alert(String(e instanceof Error ? e.message : e));
+    }
+  }
+
+  async function removeFolder(path: string) {
+    if (!id) return;
+    if (!confirm(`Delete folder "${path}" and everything inside it?`)) return;
+    const prefix = `${path}/`;
+    const targets = files.filter((f) => f.path.startsWith(prefix));
+    for (const f of targets) await api.deleteFile(id, f.path);
+    await refresh();
+  }
+
+  function toggleFolder(path: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
   async function setMain(path: string) {
     if (!id) return;
     const p = await api.patchProject(id, { main_path: path });
@@ -196,7 +241,38 @@ export default function Editor() {
   async function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer) await pushItems(await itemsFromDrop(e.dataTransfer));
+    if (!e.dataTransfer) return;
+    const from = e.dataTransfer.getData(DRAG_MIME);
+    if (from) return movePath(from, "");
+    await pushItems(await itemsFromDrop(e.dataTransfer));
+  }
+
+  async function onFolderDrop(e: React.DragEvent, folderPath: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverFolder(null);
+    setDragOver(false);
+    if (!e.dataTransfer) return;
+    const from = e.dataTransfer.getData(DRAG_MIME);
+    if (from) return movePath(from, folderPath);
+    const items = await itemsFromDrop(e.dataTransfer);
+    await pushItems(items.map((i) => ({ ...i, path: `${folderPath}/${i.path}` })));
+  }
+
+  async function movePath(from: string, toFolder: string) {
+    if (!id) return;
+    const base = from.split("/").pop()!;
+    const to = toFolder ? `${toFolder}/${base}` : base;
+    if (to === from || to.startsWith(`${from}/`)) return;
+    try {
+      await api.renameFile(id, from, to);
+      let nextActive: string | undefined;
+      if (active === from || active.startsWith(`${from}/`))
+        nextActive = to + active.slice(from.length);
+      await refresh(nextActive);
+    } catch (e) {
+      alert(String(e instanceof Error ? e.message : e));
+    }
   }
 
   async function runCompile() {
@@ -224,8 +300,8 @@ export default function Editor() {
       } else {
         setShowLog(true);
       }
-    } catch (e: any) {
-      setLog(String(e?.message || e));
+    } catch (e) {
+      setLog(String(e instanceof Error ? e.message : e));
       setShowLog(true);
     } finally {
       setCompiling(false);
@@ -244,105 +320,36 @@ export default function Editor() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border px-4 py-2">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if ("startViewTransition" in document) {
-                (document as any).startViewTransition(() =>
-                  flushSync(() => nav("/"))
-                );
-              } else {
-                nav("/");
-              }
-            }}
-            className="text-sm text-muted hover:text-white"
-          >
-            ← Projects
-          </button>
-          <span className="text-sm font-medium">{project?.name}</span>
-          <span className="text-xs text-muted">
-            {saving === "saving"
-              ? "Saving…"
-              : saving === "saved"
-              ? "Saved"
-              : ""}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={project?.engine ?? "auto"}
-            onChange={async (e) => {
-              if (!id) return;
-              const p = await api.patchProject(id, {
-                engine: e.target.value as Project["engine"],
-              });
-              setProject(p);
-            }}
-            title="LaTeX engine. 'auto' honors a % !TEX program magic comment, else pdfLaTeX."
-            className="rounded-md border border-border bg-panel px-2 py-1.5 text-sm text-white hover:bg-white/5"
-            style={{ colorScheme: "dark" }}
-          >
-            <option value="auto" className="bg-panel text-white">engine: auto</option>
-            <option value="pdflatex" className="bg-panel text-white">pdfLaTeX</option>
-            <option value="xelatex" className="bg-panel text-white">XeLaTeX</option>
-            <option value="lualatex" className="bg-panel text-white">LuaLaTeX</option>
-          </select>
-          <button
-            onClick={toggleShellEscape}
-            title="Allow the document to run shell commands during compile (e.g. minted). Enable only for trusted projects."
-            className={`rounded-md border px-3 py-1.5 text-sm transition ${
-              project?.shell_escape
-                ? "border-amber-500/60 bg-amber-500/10 text-amber-400"
-                : "border-border hover:bg-white/5"
-            }`}
-          >
-            shell-escape: {project?.shell_escape ? "on" : "off"}
-          </button>
-          <select
-            value={spellLang}
-            onChange={(e) => {
-              const lang = e.target.value as SpellLang;
-              setSpellLang(lang);
-              setSpellLangState(lang);
-              if (editorRef.current) revalidateSpell(editorRef.current);
-            }}
-            title="Spell check language"
-            className="rounded-md border border-border bg-panel px-2 py-1.5 text-sm text-white hover:bg-white/5"
-            style={{ colorScheme: "dark" }}
-          >
-            <option value="off" className="bg-panel text-white">spell: off</option>
-            <option value="en" className="bg-panel text-white">spell: EN</option>
-            <option value="es" className="bg-panel text-white">spell: ES</option>
-            <option value="both" className="bg-panel text-white">spell: EN+ES</option>
-          </select>
-          <button
-            onClick={() => setShowLog((s) => !s)}
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-white/5"
-          >
-            Log
-          </button>
-          <button
-            onClick={download}
-            disabled={!pdfBust}
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-white/5 disabled:opacity-40"
-          >
-            Download PDF
-          </button>
-          <button
-            onClick={runCompile}
-            disabled={compiling}
-            className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50"
-          >
-            {compiling ? "Compiling…" : "Compile"}
-          </button>
-        </div>
-      </header>
+      <EditorToolbar
+        projectName={project?.name}
+        saving={saving}
+        engine={project?.engine ?? "auto"}
+        onEngineChange={async (engine) => {
+          if (!id) return;
+          const p = await api.patchProject(id, { engine });
+          setProject(p);
+        }}
+        shellEscape={!!project?.shell_escape}
+        onToggleShellEscape={toggleShellEscape}
+        spellLang={spellLang}
+        onSpellLangChange={(lang) => {
+          setSpellLang(lang);
+          setSpellLangState(lang);
+          if (editorRef.current) revalidateSpell(editorRef.current);
+        }}
+        onBack={() => viewNav(nav, "/")}
+        onToggleLog={() => setShowLog((s) => !s)}
+        onDownload={download}
+        pdfReady={!!pdfBust}
+        compiling={compiling}
+        onCompile={runCompile}
+      />
 
       <div
         className="relative flex min-h-0 flex-1"
         onDragOver={(e) => {
           e.preventDefault();
+          if (e.dataTransfer?.types.includes(DRAG_MIME)) return;
           setDragOver(true);
         }}
         onDragLeave={(e) => {
@@ -357,213 +364,61 @@ export default function Editor() {
             </p>
           </div>
         )}
-        {/* File tree */}
-        <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-panel">
-          <div className="flex items-center justify-between px-3 py-2 text-xs uppercase tracking-wide text-muted">
-            <span>Files</span>
-            <div className="flex gap-1">
-              <button
-                title="New file"
-                onClick={newFile}
-                className="rounded px-1.5 hover:bg-white/10"
-              >
-                +
-              </button>
-              <button
-                title="Upload files"
-                onClick={() => fileInput.current?.click()}
-                className="rounded px-1.5 hover:bg-white/10"
-              >
-                ↑
-              </button>
-              <button
-                title="Upload folder"
-                onClick={() => folderInput.current?.click()}
-                className="rounded px-1.5 hover:bg-white/10"
-              >
-                ▤
-              </button>
-              <input
-                ref={fileInput}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={onPickFiles}
-              />
-              <input
-                ref={folderInput}
-                type="file"
-                className="hidden"
-                onChange={onPickFiles}
-                // @ts-expect-error non-standard but widely supported
-                webkitdirectory=""
-                directory=""
-              />
-            </div>
-          </div>
-          <ul className="min-h-0 flex-1 overflow-auto px-1 pb-2 text-sm">
-            {files.map((f) => (
-              <li key={f.path} className="group">
-                <div
-                  className={`flex items-center justify-between rounded px-2 py-1 ${
-                    f.path === active ? "bg-white/10" : "hover:bg-white/5"
-                  }`}
-                >
-                  <button
-                    onClick={() => openFile(f.path)}
-                    className="flex min-w-0 items-center gap-1.5 truncate text-left"
-                    title={f.path}
-                  >
-                    <span className="text-muted">{f.is_binary ? "▣" : "≡"}</span>
-                    <span className="truncate">{f.path}</span>
-                    {f.path === mainPath && (
-                      <span className="text-[10px] text-yellow-500">main</span>
-                    )}
-                  </button>
-                  <div className="hidden shrink-0 gap-1 group-hover:flex">
-                    {!f.is_binary && f.path !== mainPath && (
-                      <button
-                        title="Set as main"
-                        onClick={() => setMain(f.path)}
-                        className="text-muted hover:text-yellow-500"
-                      >
-                        ★
-                      </button>
-                    )}
-                    <button
-                      title="Delete"
-                      onClick={() => removeFile(f.path)}
-                      className="text-muted hover:text-red-400"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </aside>
+        <FileTreeSidebar
+          tree={tree}
+          active={active}
+          mainPath={mainPath}
+          collapsed={collapsed}
+          dragOverFolder={dragOverFolder}
+          fileInputRef={fileInput}
+          folderInputRef={folderInput}
+          onNewFile={newFile}
+          onNewFolder={newFolder}
+          onPickFiles={onPickFiles}
+          onToggleFolder={toggleFolder}
+          onOpenFile={openFile}
+          onRenamePath={renamePath}
+          onRemoveFolder={removeFolder}
+          onRemoveFile={removeFile}
+          onSetMain={setMain}
+          onFolderDragOver={setDragOverFolder}
+          onFolderDragLeave={(path) =>
+            setDragOverFolder((p) => (p === path ? null : p))
+          }
+          onFolderDrop={onFolderDrop}
+        />
 
-        {/* Editor pane */}
-        <div className="relative min-w-0 flex-1 border-r border-border">
-          {loaded && activeFile && !activeFile.is_binary && (
-            <MonacoEditor
-              key={active}
-              height="100%"
-              language={langForPath(active)}
-              theme="vs-dark"
-              value={content}
-              onChange={(v) => {
-                const value = v ?? "";
-                setContent(value);
-                scheduleSave(value, active);
-              }}
-              onMount={(editor) => {
-                editorRef.current = editor;
-                if (langForPath(active) === "latex") {
-                  setupLatexValidation(editor);
-                }
-              }}
-              options={{
-                fontSize: 14,
-                minimap: { enabled: false },
-                wordWrap: "on",
-                fontFamily: "Geist Mono, ui-monospace, monospace",
-                scrollBeyondLastLine: false,
-                padding: { top: 12 },
-              }}
-            />
-          )}
-          {loaded && activeFile?.is_binary && (
-            active.toLowerCase().endsWith(".pdf") ? (
-              <iframe
-                key={active}
-                src={api.assetUrl(id!, active)}
-                title={active}
-                className="h-full w-full"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center p-6">
-                <img
-                  src={api.assetUrl(id!, active)}
-                  alt={active}
-                  className="max-h-full max-w-full object-contain"
-                />
-              </div>
-            )
-          )}
-        </div>
+        <SourcePane
+          loaded={loaded}
+          activeFile={activeFile}
+          active={active}
+          projectId={id!}
+          content={content}
+          onChange={(value) => {
+            setContent(value);
+            scheduleSave(value, active);
+          }}
+          onEditorMount={(editor) => {
+            editorRef.current = editor;
+          }}
+        />
 
-        {/* Preview pane */}
-        <div className="relative min-w-0 flex-1 bg-neutral-900">
-          {!activeFile?.is_binary && isMarkdown && (
-            <button
-              onClick={() => setMdPreview((s) => !s)}
-              className="absolute right-2 top-2 z-10 rounded-md border border-border bg-panel/90 px-2 py-1 text-xs hover:bg-white/10"
-            >
-              {mdPreview ? "Hide preview" : "Show preview"}
-            </button>
-          )}
-          {isMarkdown && mdPreview ? (
-            <div
-              className="markdown-preview h-full overflow-auto p-6 text-sm text-neutral-200"
-              dangerouslySetInnerHTML={{ __html: renderedMarkdown }}
-            />
-          ) : isCsv ? (
-            <div className="h-full overflow-auto p-2">
-              <table className="w-full border-collapse text-xs">
-                <tbody>
-                  {csvRows.map((row, r) => (
-                    <tr key={r} className="group">
-                      <td className="w-8 border-none p-0 text-center">
-                        <button
-                          title="Delete row"
-                          onClick={() => deleteCsvRow(r)}
-                          className="invisible flex h-full w-full items-center justify-center px-2 text-muted hover:text-red-400 group-hover:visible"
-                        >
-                          ✕
-                        </button>
-                      </td>
-                      {row.map((cell, c) => (
-                        <td key={c} className="border border-border p-0">
-                          <input
-                            value={cell}
-                            onChange={(e) => editCsvCell(r, c, e.target.value)}
-                            className={`w-full min-w-[6rem] bg-transparent px-2 py-1 outline-none focus:bg-white/10 ${
-                              r === 0 ? "font-medium text-white" : "text-neutral-300"
-                            }`}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <button
-                onClick={addCsvRow}
-                className="mt-2 rounded px-2 py-1 text-xs text-muted hover:bg-white/5"
-              >
-                + row
-              </button>
-            </div>
-          ) : pdfBust ? (
-            <iframe
-              title="pdf"
-              src={api.pdfUrl(id!, pdfBust)}
-              className="h-full w-full"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted">
-              Compile to see the PDF preview.
-            </div>
-          )}
-
-          {showLog && (
-            <pre className="absolute inset-x-0 bottom-0 max-h-[50%] overflow-auto border-t border-border bg-black/95 p-4 font-mono text-xs text-neutral-300">
-              {log || "No log output."}
-            </pre>
-          )}
-        </div>
+        <PreviewPane
+          activeFile={activeFile}
+          projectId={id!}
+          isMarkdown={isMarkdown}
+          mdPreview={mdPreview}
+          onToggleMdPreview={() => setMdPreview((s) => !s)}
+          renderedMarkdown={renderedMarkdown}
+          isCsv={isCsv}
+          csvRows={csvRows}
+          onEditCsvCell={editCsvCell}
+          onDeleteCsvRow={deleteCsvRow}
+          onAddCsvRow={addCsvRow}
+          pdfBust={pdfBust}
+          showLog={showLog}
+          log={log}
+        />
       </div>
     </div>
   );

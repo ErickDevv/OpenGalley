@@ -1,4 +1,4 @@
-// @ts-ignore – typo-js has no type declarations
+// @ts-expect-error – typo-js has no type declarations
 import Typo from 'typo-js'
 import * as monaco from 'monaco-editor'
 
