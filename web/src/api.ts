@@ -80,6 +80,13 @@ export const api = {
       method: "DELETE",
     }),
 
+  renameFile: (id: string, from: string, to: string) =>
+    fetch(`${base}/projects/${id}/files/${encodeURIComponent(from)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to }),
+    }).then(json<{ ok: boolean; count: number }>),
+
   uploadBatch: (
     id: string,
     files: { path: string; content?: string; data?: string }[]

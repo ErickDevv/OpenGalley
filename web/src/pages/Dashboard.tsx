@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { flushSync } from "react-dom";
 import { api, Project } from "../api";
+import { viewNav } from "../viewTransition";
 
 import {
   detectMainPath,
@@ -10,14 +10,6 @@ import {
   itemsFromZip,
   UploadItem,
 } from "../upload";
-
-function viewNav(nav: ReturnType<typeof useNavigate>, to: string) {
-  if ("startViewTransition" in document) {
-    (document as any).startViewTransition(() => flushSync(() => nav(to)));
-  } else {
-    nav(to);
-  }
-}
 
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -111,7 +103,8 @@ export default function Dashboard() {
     const list = e.target.files;
     e.target.value = "";
     if (!list || !list.length) return;
-    const top = (list[0] as any).webkitRelativePath?.split("/")[0];
+    const top = (list[0] as File & { webkitRelativePath?: string })
+      .webkitRelativePath?.split("/")[0];
     importItems(await itemsFromFileList(list), top || "Imported Project");
   }
 
@@ -208,7 +201,6 @@ export default function Dashboard() {
           onChange={onFolder}
           // @ts-expect-error non-standard but widely supported
           webkitdirectory=""
-          directory=""
         />
       </header>
 

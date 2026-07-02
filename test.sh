@@ -13,14 +13,11 @@ run() {
   fi
 }
 
-# API unit tests
-run "API unit tests" bash -c "cd '$ROOT/api' && pnpm test"
-
-# Web unit tests
-run "Web unit tests" bash -c "cd '$ROOT/web' && pnpm test"
+# Unit tests (API + Web), via turbo
+run "Unit tests" bash -c "cd '$ROOT' && pnpm turbo run test"
 
 # E2E
-run "Web E2E tests" bash -c "cd '$ROOT/web' && pnpm test:e2e"
+run "Web E2E tests" bash -c "cd '$ROOT' && pnpm turbo run test:e2e --filter=opengalley-web"
 
 echo ""
 if [[ $FAILED -eq 0 ]]; then
