@@ -10,6 +10,7 @@ import { revalidateSpell } from "../monacoSetup";
 import { getSpellLang, setSpellLang, SpellLang } from "../spellCheck";
 import { DRAG_MIME, FOLDER_MARKER, buildTree } from "../fileTree";
 import { viewNav } from "../viewTransition";
+import { useSplitPane } from "../useSplitPane";
 import EditorToolbar from "../components/EditorToolbar";
 import FileTreeSidebar from "../components/FileTreeSidebar";
 import SourcePane from "../components/SourcePane";
@@ -36,38 +37,11 @@ export default function Editor() {
   const [spellLang, setSpellLangState] = useState<SpellLang>(getSpellLang);
   const [mdPreview, setMdPreview] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [splitRatio, setSplitRatio] = useState(() => {
-    const saved = Number(localStorage.getItem("textex.splitRatio"));
-    return saved > 0 && saved < 1 ? saved : 0.5;
-  });
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoType.editor.IStandaloneCodeEditor | null>(null);
-  const splitRef = useRef<HTMLDivElement>(null);
-
-  const startResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const container = splitRef.current;
-    if (!container) return;
-    let ratio = splitRatio;
-    const onMove = (ev: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      ratio = Math.min(0.85, Math.max(0.15, (ev.clientX - rect.left) / rect.width));
-      setSplitRatio(ratio);
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      localStorage.setItem("textex.splitRatio", String(ratio));
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-  }, [splitRatio]);
+  const { ratio: splitRatio, containerRef: splitRef, startResize } = useSplitPane("textex.splitRatio");
 
   const activeFile = files.find((f) => f.path === active);
   const isMarkdown = active.toLowerCase().endsWith(".md");
