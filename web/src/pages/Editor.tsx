@@ -36,10 +36,38 @@ export default function Editor() {
   const [spellLang, setSpellLangState] = useState<SpellLang>(getSpellLang);
   const [mdPreview, setMdPreview] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [splitRatio, setSplitRatio] = useState(() => {
+    const saved = Number(localStorage.getItem("textex.splitRatio"));
+    return saved > 0 && saved < 1 ? saved : 0.5;
+  });
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoType.editor.IStandaloneCodeEditor | null>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
+
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = splitRef.current;
+    if (!container) return;
+    let ratio = splitRatio;
+    const onMove = (ev: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      ratio = Math.min(0.85, Math.max(0.15, (ev.clientX - rect.left) / rect.width));
+      setSplitRatio(ratio);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem("textex.splitRatio", String(ratio));
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [splitRatio]);
 
   const activeFile = files.find((f) => f.path === active);
   const isMarkdown = active.toLowerCase().endsWith(".md");
@@ -388,37 +416,46 @@ export default function Editor() {
           onFolderDrop={onFolderDrop}
         />
 
-        <SourcePane
-          loaded={loaded}
-          activeFile={activeFile}
-          active={active}
-          projectId={id!}
-          content={content}
-          onChange={(value) => {
-            setContent(value);
-            scheduleSave(value, active);
-          }}
-          onEditorMount={(editor) => {
-            editorRef.current = editor;
-          }}
-        />
+        <div ref={splitRef} className="flex min-w-0 flex-1">
+          <SourcePane
+            loaded={loaded}
+            activeFile={activeFile}
+            active={active}
+            projectId={id!}
+            content={content}
+            style={{ flex: `0 0 ${splitRatio * 100}%` }}
+            onChange={(value) => {
+              setContent(value);
+              scheduleSave(value, active);
+            }}
+            onEditorMount={(editor) => {
+              editorRef.current = editor;
+            }}
+          />
 
-        <PreviewPane
-          activeFile={activeFile}
-          projectId={id!}
-          isMarkdown={isMarkdown}
-          mdPreview={mdPreview}
-          onToggleMdPreview={() => setMdPreview((s) => !s)}
-          renderedMarkdown={renderedMarkdown}
-          isCsv={isCsv}
-          csvRows={csvRows}
-          onEditCsvCell={editCsvCell}
-          onDeleteCsvRow={deleteCsvRow}
-          onAddCsvRow={addCsvRow}
-          pdfBust={pdfBust}
-          showLog={showLog}
-          log={log}
-        />
+          <div
+            onMouseDown={startResize}
+            className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-white/30 active:bg-white/40"
+          />
+
+          <PreviewPane
+            activeFile={activeFile}
+            projectId={id!}
+            isMarkdown={isMarkdown}
+            mdPreview={mdPreview}
+            onToggleMdPreview={() => setMdPreview((s) => !s)}
+            renderedMarkdown={renderedMarkdown}
+            isCsv={isCsv}
+            csvRows={csvRows}
+            onEditCsvCell={editCsvCell}
+            onDeleteCsvRow={deleteCsvRow}
+            onAddCsvRow={addCsvRow}
+            pdfBust={pdfBust}
+            showLog={showLog}
+            log={log}
+            style={{ flex: `0 0 ${(1 - splitRatio) * 100}%` }}
+          />
+        </div>
       </div>
     </div>
   );

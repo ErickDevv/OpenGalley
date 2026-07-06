@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { api, ProjectFile } from "../api";
 
 interface PreviewPaneProps {
@@ -15,6 +16,7 @@ interface PreviewPaneProps {
   pdfBust: number;
   showLog: boolean;
   log: string;
+  style?: CSSProperties;
 }
 
 export default function PreviewPane(props: PreviewPaneProps) {
@@ -33,10 +35,11 @@ export default function PreviewPane(props: PreviewPaneProps) {
     pdfBust,
     showLog,
     log,
+    style,
   } = props;
 
   return (
-    <div className="relative min-w-0 flex-1 bg-neutral-900">
+    <div className="relative min-w-0 flex-1 bg-neutral-900" style={style}>
       {!activeFile?.is_binary && isMarkdown && (
         <button
           onClick={onToggleMdPreview}
