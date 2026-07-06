@@ -10,6 +10,7 @@ import { revalidateSpell } from "../monacoSetup";
 import { getSpellLang, setSpellLang, SpellLang } from "../spellCheck";
 import { DRAG_MIME, FOLDER_MARKER, buildTree } from "../fileTree";
 import { viewNav } from "../viewTransition";
+import { useSplitPane } from "../useSplitPane";
 import EditorToolbar from "../components/EditorToolbar";
 import FileTreeSidebar from "../components/FileTreeSidebar";
 import SourcePane from "../components/SourcePane";
@@ -40,6 +41,7 @@ export default function Editor() {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoType.editor.IStandaloneCodeEditor | null>(null);
+  const { ratio: splitRatio, containerRef: splitRef, startResize } = useSplitPane("textex.splitRatio");
 
   const activeFile = files.find((f) => f.path === active);
   const isMarkdown = active.toLowerCase().endsWith(".md");
@@ -388,37 +390,46 @@ export default function Editor() {
           onFolderDrop={onFolderDrop}
         />
 
-        <SourcePane
-          loaded={loaded}
-          activeFile={activeFile}
-          active={active}
-          projectId={id!}
-          content={content}
-          onChange={(value) => {
-            setContent(value);
-            scheduleSave(value, active);
-          }}
-          onEditorMount={(editor) => {
-            editorRef.current = editor;
-          }}
-        />
+        <div ref={splitRef} className="flex min-w-0 flex-1">
+          <SourcePane
+            loaded={loaded}
+            activeFile={activeFile}
+            active={active}
+            projectId={id!}
+            content={content}
+            style={{ flex: `0 0 ${splitRatio * 100}%` }}
+            onChange={(value) => {
+              setContent(value);
+              scheduleSave(value, active);
+            }}
+            onEditorMount={(editor) => {
+              editorRef.current = editor;
+            }}
+          />
 
-        <PreviewPane
-          activeFile={activeFile}
-          projectId={id!}
-          isMarkdown={isMarkdown}
-          mdPreview={mdPreview}
-          onToggleMdPreview={() => setMdPreview((s) => !s)}
-          renderedMarkdown={renderedMarkdown}
-          isCsv={isCsv}
-          csvRows={csvRows}
-          onEditCsvCell={editCsvCell}
-          onDeleteCsvRow={deleteCsvRow}
-          onAddCsvRow={addCsvRow}
-          pdfBust={pdfBust}
-          showLog={showLog}
-          log={log}
-        />
+          <div
+            onMouseDown={startResize}
+            className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-white/30 active:bg-white/40"
+          />
+
+          <PreviewPane
+            activeFile={activeFile}
+            projectId={id!}
+            isMarkdown={isMarkdown}
+            mdPreview={mdPreview}
+            onToggleMdPreview={() => setMdPreview((s) => !s)}
+            renderedMarkdown={renderedMarkdown}
+            isCsv={isCsv}
+            csvRows={csvRows}
+            onEditCsvCell={editCsvCell}
+            onDeleteCsvRow={deleteCsvRow}
+            onAddCsvRow={addCsvRow}
+            pdfBust={pdfBust}
+            showLog={showLog}
+            log={log}
+            style={{ flex: `0 0 ${(1 - splitRatio) * 100}%` }}
+          />
+        </div>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import MonacoEditor from "@monaco-editor/react";
+import type { CSSProperties } from "react";
 import type * as MonacoType from "monaco-editor";
 import { api, ProjectFile } from "../api";
 import { setupLatexValidation } from "../monacoSetup";
@@ -10,15 +11,16 @@ interface SourcePaneProps {
   active: string;
   projectId: string;
   content: string;
+  style?: CSSProperties;
   onChange: (value: string) => void;
   onEditorMount: (editor: MonacoType.editor.IStandaloneCodeEditor) => void;
 }
 
 export default function SourcePane(props: SourcePaneProps) {
-  const { loaded, activeFile, active, projectId, content, onChange, onEditorMount } = props;
+  const { loaded, activeFile, active, projectId, content, style, onChange, onEditorMount } = props;
 
   return (
-    <div className="relative min-w-0 flex-1 border-r border-border">
+    <div className="relative min-w-0 flex-1 border-r border-border" style={style}>
       {loaded && activeFile && !activeFile.is_binary && (
         <MonacoEditor
           key={active}
@@ -40,6 +42,12 @@ export default function SourcePane(props: SourcePaneProps) {
             fontFamily: "Geist Mono, ui-monospace, monospace",
             scrollBeyondLastLine: false,
             padding: { top: 12 },
+            matchBrackets: "never",
+            bracketPairColorization: { enabled: false },
+            selectionHighlight: false,
+            occurrencesHighlight: "off",
+            renderWhitespace: "none",
+            smoothScrolling: false,
           }}
         />
       )}
